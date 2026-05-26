@@ -1,6 +1,11 @@
 name: Daily Bay Area Filmmaking Job Scan
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/daily-job-scan.yml'
+      - 'scripts/**'
   schedule:
     # 8 AM Pacific Daylight Time (UTC-7) = 15:00 UTC
     - cron: '0 15 * * *'
