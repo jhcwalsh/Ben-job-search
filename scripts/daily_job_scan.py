@@ -191,15 +191,17 @@ def run_job_scan() -> str:
                 "content": response.content,
             })
 
-            # Build tool_result stubs — Anthropic's server fills in the search
-            # results when it processes the next request.
+            # Build tool result stubs. server_tool_use blocks (web_search) need
+            # "server_tool_result"; regular tool_use blocks need "tool_result".
             tool_results = []
             for tu in tool_uses:
-                tu_id = getattr(tu, "id", None) or (tu.get("id") if isinstance(tu, dict) else None)
+                tu_id   = getattr(tu, "id",   None) or (tu.get("id")   if isinstance(tu, dict) else None)
+                tu_type = getattr(tu, "type", None) or (tu.get("type") if isinstance(tu, dict) else None)
+                result_type = "server_tool_result" if tu_type == "server_tool_use" else "tool_result"
                 tool_results.append({
-                    "type": "tool_result",
+                    "type": result_type,
                     "tool_use_id": tu_id,
-                    "content": [],   # server-side: Anthropic provides real results
+                    "content": [],
                 })
 
             if tool_results:
