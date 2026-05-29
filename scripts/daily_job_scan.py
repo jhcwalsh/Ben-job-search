@@ -25,7 +25,7 @@ NOW_UTC = datetime.now(timezone.utc)
 DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "May 26, 2026"
 DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
 
@@ -199,7 +199,7 @@ def run_job_scan() -> str:
                 tool_results.append({
                     "type": "tool_result",
                     "tool_use_id": tu_id,
-                    "content": [],   # server-side: Anthropic provides real results
+                    "content": "",   # server-side tool — Anthropic already executed it
                 })
 
             if tool_results:
