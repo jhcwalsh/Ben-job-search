@@ -25,7 +25,7 @@ NOW_UTC = datetime.now(timezone.utc)
 DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "May 26, 2026"
 DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
 
@@ -193,13 +193,16 @@ def run_job_scan() -> str:
 
             # Build tool_result stubs — Anthropic's server fills in the search
             # results when it processes the next request.
+            # server_tool_use blocks (web_search) require server_tool_result type.
             tool_results = []
             for tu in tool_uses:
-                tu_id = getattr(tu, "id", None) or (tu.get("id") if isinstance(tu, dict) else None)
+                tu_id   = getattr(tu, "id",   None) or (tu.get("id")   if isinstance(tu, dict) else None)
+                tu_type = getattr(tu, "type", None) or (tu.get("type") if isinstance(tu, dict) else None)
+                result_type = "server_tool_result" if tu_type == "server_tool_use" else "tool_result"
                 tool_results.append({
-                    "type": "tool_result",
+                    "type": result_type,
                     "tool_use_id": tu_id,
-                    "content": [],   # server-side: Anthropic provides real results
+                    "content": "",
                 })
 
             if tool_results:
