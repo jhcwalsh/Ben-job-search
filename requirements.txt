@@ -1,3 +1,4 @@
 # Daily Bay Area Filmmaking Job Scan dependencies
 anthropic>=0.54.0      # Claude API with web-search tool support
+<<<<<<< HEAD
 markdown>=3.6          # Markdown -> HTML for email body
