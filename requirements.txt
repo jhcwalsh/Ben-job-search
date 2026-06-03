@@ -1,3 +1,3 @@
 # Daily Bay Area Filmmaking Job Scan dependencies
-anthropicx>=0.54.0      # Claude API with web-search tool support
+anthropic>=0.54.0      # Claude API with web-search tool support
 markdown>=3.6          # Markdown -> HTML for email body
