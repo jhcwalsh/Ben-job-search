@@ -1,12 +1,15 @@
 name: Daily Bay Area Filmmaking Job Scan
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/daily-job-scan.yml'
+      - 'scripts/**'
   schedule:
     # 8 AM Pacific Daylight Time (UTC-7) = 15:00 UTC
-    # Adjust to '0 16 * * *' Nov–Mar when Pacific Standard Time (UTC-8) is in effect
+    # Adjust to '0 16 * * *' Nov-Mar when Pacific Standard Time (UTC-8) is in effect
     - cron: '0 15 * * *'
-
-  # Allow manual trigger from the Actions tab (great for first-run testing)
   workflow_dispatch:
 
 jobs:

@@ -25,7 +25,7 @@ NOW_UTC = datetime.now(timezone.utc)
 DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "May 26, 2026"
 DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
 
@@ -240,7 +240,7 @@ def build_html(body_md: str) -> str:
              margin:0 auto;padding:24px;color:#222;line-height:1.5;">
   <h1 style="font-size:22px;color:#1a1a2e;border-bottom:2px solid #e8e8e8;
              padding-bottom:8px;">
-    🎬 Bay Area Film Jobs &mdash; {DATE_DISPLAY}
+    \U0001f3ac Bay Area Film Jobs &mdash; {DATE_DISPLAY}
   </h1>
   {body_html}
   <hr style="margin-top:36px;border:none;border-top:1px solid #e8e8e8;">
@@ -278,7 +278,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    subject = f"🎬 Bay Area Film Jobs — {DATE_DISPLAY}"
+    subject = f"\U0001f3ac Bay Area Film Jobs — {DATE_DISPLAY}"
 
     log.info("=== Daily Bay Area Filmmaking Job Scan starting (%s) ===", DATE_DISPLAY)
 
