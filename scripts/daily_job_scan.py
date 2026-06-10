@@ -25,7 +25,7 @@ NOW_UTC = datetime.now(timezone.utc)
 DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "May 26, 2026"
 DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 
-MODEL = "claude-opus-4-7"
+MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
 
@@ -126,10 +126,9 @@ If you spotted one role requiring up to 2 years experience that aligns with the 
 # ---------------------------------------------------------------------------
 
 def extract_text(content_blocks) -> str:
-    """Pull all text out of a list of content blocks (handles SDK objects or raw dicts)."""
+    """Pull all text blocks out of a response content list."""
     parts = []
     for block in content_blocks:
-        # SDK object path
         block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
         if block_type == "text":
             text = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else "")
@@ -138,24 +137,20 @@ def extract_text(content_blocks) -> str:
     return "\n".join(parts)
 
 
-def collect_tool_uses(content_blocks) -> list:
-    """Return all tool_use / server_tool_use blocks from a response."""
-    tool_uses = []
-    for block in content_blocks:
-        block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
-        if block_type in ("tool_use", "server_tool_use"):
-            tool_uses.append(block)
-    return tool_uses
-
-
 def run_job_scan() -> str:
-    """Call Claude with web search enabled and return the final text response."""
+    """Call Claude with server-side web search and return the final text response.
+
+    web_search is a *server-executed* tool: Anthropic runs the search internally
+    and folds results back into the model before returning a response.  The client
+    never constructs tool_result blocks.  The only special case is stop_reason
+    "pause_turn", which means the server's internal loop hit its iteration cap;
+    re-sending the conversation lets it continue where it left off.
+    """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
         raise EnvironmentError("ANTHROPIC_API_KEY is not set.")
 
     client = anthropic.Anthropic(api_key=api_key)
-
     messages = [{"role": "user", "content": USER_PROMPT}]
 
     for iteration in range(1, MAX_LOOP_ITERATIONS + 1):
@@ -165,7 +160,7 @@ def run_job_scan() -> str:
             model=MODEL,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=messages,
         )
 
@@ -173,47 +168,25 @@ def run_job_scan() -> str:
         log.info("stop_reason=%s  content_types=%s", stop_reason,
                  [getattr(b, "type", "?") for b in response.content])
 
-        # --- Final answer ---
         if stop_reason == "end_turn":
             text = extract_text(response.content)
-            if text:
-                log.info("Got final answer (%d chars)", len(text))
-                return text
-            # Occasionally end_turn arrives with no text yet — keep looping
-            log.warning("end_turn but no text; continuing…")
+            log.info("Got final answer (%d chars)", len(text))
+            return text or "(No output — scan produced no text.)"
 
-        # --- Tool-use round ---
-        tool_uses = collect_tool_uses(response.content)
-        if tool_uses or stop_reason == "tool_use":
-            # Append assistant turn (must include the full content list)
-            messages.append({
-                "role": "assistant",
-                "content": response.content,
-            })
+        if stop_reason == "pause_turn":
+            # Server-side search loop hit its iteration cap; re-send to continue.
+            log.info("pause_turn — continuing server-side loop")
+            messages = [
+                {"role": "user", "content": USER_PROMPT},
+                {"role": "assistant", "content": response.content},
+            ]
+            continue
 
-            # Build tool_result stubs — Anthropic's server fills in the search
-            # results when it processes the next request.
-            tool_results = []
-            for tu in tool_uses:
-                tu_id = getattr(tu, "id", None) or (tu.get("id") if isinstance(tu, dict) else None)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu_id,
-                    "content": [],   # server-side: Anthropic provides real results
-                })
-
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
-
-            continue   # go around for Claude's next reply
-
-        # --- Max-tokens or other pause ---
-        if stop_reason in ("max_tokens", "pause_turn"):
+        if stop_reason == "max_tokens":
             partial = extract_text(response.content)
-            log.warning("Stopped due to %s; returning partial text.", stop_reason)
-            return partial or "(No output — scan hit token/pause limit.)"
+            log.warning("Stopped due to max_tokens; returning partial text.")
+            return partial or "(No output — scan hit token limit.)"
 
-        # --- Anything else ---
         log.warning("Unexpected stop_reason=%s", stop_reason)
         partial = extract_text(response.content)
         if partial:
@@ -245,7 +218,7 @@ def build_html(body_md: str) -> str:
   {body_html}
   <hr style="margin-top:36px;border:none;border-top:1px solid #e8e8e8;">
   <p style="font-size:11px;color:#999;">
-    Automated daily scan · Claude {MODEL} · {DATE_DISPLAY}
+    Automated daily scan &middot; Claude {MODEL} &middot; {DATE_DISPLAY}
   </p>
 </body>
 </html>"""
