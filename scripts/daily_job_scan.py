@@ -22,12 +22,12 @@ import markdown
 RECIPIENTS = ["james@walsh.nu", "walshcben@gmail.com"]
 
 NOW_UTC = datetime.now(timezone.utc)
-DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "May 26, 2026"
+DATE_DISPLAY = NOW_UTC.strftime("%B %-d, %Y")   # e.g. "June 13, 2026"
 DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 
-MODEL = "claude-opus-4-7"
-MAX_TOKENS = 8192
-MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
+MODEL = "claude-opus-4-8"
+MAX_TOKENS = 16000
+MAX_LOOP_ITERATIONS = 30   # safety cap for pause_turn loop
 
 logging.basicConfig(
     level=logging.INFO,
@@ -41,9 +41,9 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 SYSTEM_PROMPT = (
     "You are a sharp Bay Area film-industry job scout with real-time web access. "
-    "You search multiple job boards, read the actual postings, and return a clean, "
-    "factual summary. You never invent listings. If a site returns no relevant recent "
-    "postings you say so explicitly."
+    "Search multiple job boards immediately, read the actual postings, and return a clean, "
+    "factual summary. Never invent listings. If a site returns no relevant recent "
+    "postings say so explicitly."
 )
 
 USER_PROMPT = f"""Today is {DATE_DISPLAY}.
@@ -123,29 +123,24 @@ If you spotted one role requiring up to 2 years experience that aligns with the 
 
 # ---------------------------------------------------------------------------
 # Claude web-search conversation loop
+#
+# web_search_20260209 is a SERVER-SIDE tool: Anthropic executes every search
+# internally before returning the response. The client must NOT send
+# tool_result blocks back. The only special stop_reason to handle is
+# "pause_turn" (the model hit its per-request search limit) — re-send
+# the conversation to continue. "end_turn" means the scan is complete.
 # ---------------------------------------------------------------------------
 
 def extract_text(content_blocks) -> str:
-    """Pull all text out of a list of content blocks (handles SDK objects or raw dicts)."""
+    """Pull all text out of a list of content blocks."""
     parts = []
     for block in content_blocks:
-        # SDK object path
         block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
         if block_type == "text":
             text = getattr(block, "text", None) or (block.get("text") if isinstance(block, dict) else "")
             if text:
                 parts.append(text)
     return "\n".join(parts)
-
-
-def collect_tool_uses(content_blocks) -> list:
-    """Return all tool_use / server_tool_use blocks from a response."""
-    tool_uses = []
-    for block in content_blocks:
-        block_type = getattr(block, "type", None) or (block.get("type") if isinstance(block, dict) else None)
-        if block_type in ("tool_use", "server_tool_use"):
-            tool_uses.append(block)
-    return tool_uses
 
 
 def run_job_scan() -> str:
@@ -165,60 +160,36 @@ def run_job_scan() -> str:
             model=MODEL,
             max_tokens=MAX_TOKENS,
             system=SYSTEM_PROMPT,
-            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            tools=[{"type": "web_search_20260209", "name": "web_search"}],
             messages=messages,
         )
 
         stop_reason = response.stop_reason
-        log.info("stop_reason=%s  content_types=%s", stop_reason,
-                 [getattr(b, "type", "?") for b in response.content])
+        log.info("stop_reason=%s", stop_reason)
 
-        # --- Final answer ---
         if stop_reason == "end_turn":
             text = extract_text(response.content)
             if text:
                 log.info("Got final answer (%d chars)", len(text))
                 return text
-            # Occasionally end_turn arrives with no text yet — keep looping
             log.warning("end_turn but no text; continuing…")
 
-        # --- Tool-use round ---
-        tool_uses = collect_tool_uses(response.content)
-        if tool_uses or stop_reason == "tool_use":
-            # Append assistant turn (must include the full content list)
-            messages.append({
-                "role": "assistant",
-                "content": response.content,
-            })
+        # pause_turn: server hit its per-request search limit — append the
+        # assistant turn and re-send to let it continue searching.
+        if stop_reason == "pause_turn":
+            messages.append({"role": "assistant", "content": response.content})
+            continue
 
-            # Build tool_result stubs — Anthropic's server fills in the search
-            # results when it processes the next request.
-            tool_results = []
-            for tu in tool_uses:
-                tu_id = getattr(tu, "id", None) or (tu.get("id") if isinstance(tu, dict) else None)
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tu_id,
-                    "content": [],   # server-side: Anthropic provides real results
-                })
-
-            if tool_results:
-                messages.append({"role": "user", "content": tool_results})
-
-            continue   # go around for Claude's next reply
-
-        # --- Max-tokens or other pause ---
-        if stop_reason in ("max_tokens", "pause_turn"):
+        if stop_reason == "max_tokens":
             partial = extract_text(response.content)
-            log.warning("Stopped due to %s; returning partial text.", stop_reason)
-            return partial or "(No output — scan hit token/pause limit.)"
+            log.warning("Hit max_tokens; returning partial text.")
+            return partial or "(No output — scan hit token limit.)"
 
-        # --- Anything else ---
-        log.warning("Unexpected stop_reason=%s", stop_reason)
+        # Anything else (e.g. end_turn with no text yet) — try to extract text
         partial = extract_text(response.content)
         if partial:
             return partial
-        break
+        log.warning("Unexpected stop_reason=%s, no text; continuing…", stop_reason)
 
     return "(Error: scan did not complete within the allowed number of iterations.)"
 
