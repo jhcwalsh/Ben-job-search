@@ -84,5 +84,5 @@ All search parameters live in `scripts/daily_job_scan.py`:
 
 - **`RECIPIENTS`** — add or remove email addresses
 - **`USER_PROMPT`** — tweak role categories, employer list, or output format
-- **`MODEL`** — swap to `claude-sonnet-4-6` if you want faster/cheaper runs
+- **`MODEL`** — swap to `claude-sonnet-4-6` for faster/cheaper runs; default is `claude-opus-4-8`
 - **Cron expression** — in `daily-job-scan.yml` to shift the daily send time
