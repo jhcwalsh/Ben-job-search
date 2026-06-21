@@ -28,6 +28,7 @@ DATE_SHORT   = NOW_UTC.strftime("%Y-%m-%d")
 MODEL = "claude-opus-4-8"
 MAX_TOKENS = 8192
 MAX_LOOP_ITERATIONS = 20   # safety cap for tool-use loop
+MAX_EMPTY_END_TURNS = 3    # bail out if end_turn repeatedly returns no text
 
 logging.basicConfig(
     level=logging.INFO,
@@ -90,8 +91,8 @@ Search for filmmaking and film/video production jobs in the **San Francisco Bay 
 ---
 
 ## Sites to search (search each one)
-1. LinkedIn Jobs — search "film production" OR "production assistant" OR "production coordinator" site:linkedin.com/jobs location "San Francisco Bay Area"
-2. Indeed — search "production assistant" OR "production coordinator" OR "assistant editor" "San Francisco" OR "Bay Area" film OR video
+1. LinkedIn Jobs — search \"film production\" OR \"production assistant\" OR \"production coordinator\" site:linkedin.com/jobs location \"San Francisco Bay Area\"
+2. Indeed — search \"production assistant\" OR \"production coordinator\" OR \"assistant editor\" \"San Francisco\" OR \"Bay Area\" film OR video
 3. EntertainmentCareers.net — search for Bay Area film/video listings
 4. ProductionHub — search for San Francisco / Bay Area crew and coordinator listings
 5. Also check: KQED jobs page, SFFILM job board, BAVC Media job board, ILM/Lucasfilm careers
@@ -104,11 +105,11 @@ Search for filmmaking and film/video production jobs in the **San Francisco Bay 
 
 *Volume Track*
 - [Company] — [Role Title] — [URL] — [Posted date]
-(If none found: "None found in the last 24–48 hours.")
+(If none found: \"None found in the last 24–48 hours.\")
 
 *Creative Track*
 - [Company] — [Role Title] — [URL] — [Posted date]
-(If none found: "None found in the last 24–48 hours.")
+(If none found: \"None found in the last 24–48 hours.\")
 
 **Nen Creative Status**
 Is the Production Coordinator posting still live? Check their website and LinkedIn page.
@@ -141,9 +142,8 @@ def run_job_scan() -> str:
     """Call Claude with server-side web search and return the final text response.
 
     Web search is a server-side tool: Anthropic executes searches on its
-    infrastructure and continues internally.  The loop simply re-sends the
-    conversation on pause_turn until end_turn signals the final answer.
-    No client-side tool_result blocks are needed or expected.
+    infrastructure and continues internally.  The loop re-sends the conversation
+    on pause_turn until end_turn signals the final answer.
     """
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if not api_key:
@@ -152,6 +152,7 @@ def run_job_scan() -> str:
     client = anthropic.Anthropic(api_key=api_key)
 
     messages = [{"role": "user", "content": USER_PROMPT}]
+    empty_end_turns = 0
 
     for iteration in range(1, MAX_LOOP_ITERATIONS + 1):
         log.info("Claude API call — iteration %d", iteration)
@@ -168,20 +169,25 @@ def run_job_scan() -> str:
         log.info("stop_reason=%s  content_types=%s", stop_reason,
                  [getattr(b, "type", "?") for b in response.content])
 
-        # --- Final answer ---
         if stop_reason == "end_turn":
             text = extract_text(response.content)
             if text:
                 log.info("Got final answer (%d chars)", len(text))
                 return text
-            log.warning("end_turn but no text; continuing…")
-
-        # --- Server is still searching; re-send to let it continue ---
-        elif stop_reason == "pause_turn":
+            # end_turn with no text is unexpected; append and retry with a cap
+            empty_end_turns += 1
+            log.warning("end_turn with no text (occurrence %d/%d); re-sending…",
+                        empty_end_turns, MAX_EMPTY_END_TURNS)
+            if empty_end_turns >= MAX_EMPTY_END_TURNS:
+                return "(Error: Claude returned end_turn with no text repeatedly.)"
             messages.append({"role": "assistant", "content": response.content})
             continue
 
-        # --- Max-tokens ---
+        elif stop_reason == "pause_turn":
+            # Server is still running web searches; re-send to let it continue
+            messages.append({"role": "assistant", "content": response.content})
+            continue
+
         elif stop_reason == "max_tokens":
             partial = extract_text(response.content)
             log.warning("Stopped due to max_tokens; returning partial text.")
@@ -214,7 +220,7 @@ def build_html(body_md: str) -> str:
              margin:0 auto;padding:24px;color:#222;line-height:1.5;">
   <h1 style="font-size:22px;color:#1a1a2e;border-bottom:2px solid #e8e8e8;
              padding-bottom:8px;">
-    🎬 Bay Area Film Jobs &mdash; {DATE_DISPLAY}
+    \U0001f3ac Bay Area Film Jobs &mdash; {DATE_DISPLAY}
   </h1>
   {body_html}
   <hr style="margin-top:36px;border:none;border-top:1px solid #e8e8e8;">
@@ -252,7 +258,7 @@ def send_email(subject: str, text_body: str, html_body: str) -> None:
 # ---------------------------------------------------------------------------
 
 def main() -> None:
-    subject = f"🎬 Bay Area Film Jobs — {DATE_DISPLAY}"
+    subject = f"\U0001f3ac Bay Area Film Jobs — {DATE_DISPLAY}"
 
     log.info("=== Daily Bay Area Filmmaking Job Scan starting (%s) ===", DATE_DISPLAY)
 
